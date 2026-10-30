@@ -1,4 +1,4 @@
-# Windows computer-use for AI agents: four problems the popular tools don't handle yet
+# Windows computer-use for AI agents: four problems when an agent and a human share one desktop
 
 > **Field notes · partly day one.** Section 1 (minimized windows), 2 (typing leaks), 3 (keyboard layouts) and 4 (Thai OCR) were built and tested on **2026-10-30**. The rest of the tool has been in daily use since 2026-10-07. Tested on one machine: Windows 11 build 26300, Python 3 + `ctypes`, 125 % DPI, apps from classic Win32 to UWP and Chromium. Expect rough edges; this README will be updated after two more weeks of real use.
 
@@ -6,7 +6,12 @@ I run several AI coding agents (Claude Code) on one Windows laptop, and they nee
 
 | | [trycua/cua](https://github.com/trycua/cua) (cua-driver, Windows backend) | [CursorTouch/Windows-MCP](https://github.com/CursorTouch/Windows-MCP) |
 |---|---|---|
-| Minimized target window | Refuses: `cannot capture minimized window` (`platform-windows/src/capture.rs`, `wgc.rs`) | Restores it with `SW_RESTORE` and switches to it (`desktop/service.py`) — the user's screen changes |
+| 1. Minimized target window | Refuses: `cannot capture minimized window` (`platform-windows/src/capture.rs`, `wgc.rs`) | Restores it with `SW_RESTORE` and switches to it (`desktop/service.py`) — the user's screen changes |
+| 2. Typing leaks | **Handled.** Foreground `type_text` waits for each character to be read: 211 characters into a window slowed to 40 ms per key all landed, none leaked | Not tested |
+| 3. Non-US keyboard layout | `press_key "3"` types `-` on a Thai-layout window, both background and foreground; `type_text` is correct ([trycua/cua#6181](https://github.com/trycua/cua/issues/6181)) | Not tested |
+| 4. Thai OCR | OCR extension is English-only ([trycua/cua#4332](https://github.com/trycua/cua/issues/4332)); not tested by me | Not tested |
+
+cua rows 1–3 were re-tested against cua-driver 0.38.0 on 2026-10-30 with throwaway WinForms windows; row 4 is from the linked issue. So section 2 is mainly a trap for hand-rolled `SendInput` code; cua already avoids it.
 
 Both are good projects with far more scope than mine (Cua runs whole sandboxed VMs on three OSes). These notes are only about four details that matter when **an agent and a human share one desktop**. The code here is short illustrative `ctypes`; the tool itself stays private.
 
@@ -55,6 +60,8 @@ Things I had to learn the hard way:
 Checked by comparing screen pixels before and during a peek (identical), while `PrintWindow` still returned the full window image. Elevated (admin) windows are out of reach of a non-elevated process (UIPI), so this is only tested on normal windows.
 
 ## 2. Typed text leaking into the user's window
+
+(cua-driver 0.38.0 does not have this problem: its foreground typing waits for each character. This section is for anyone writing their own.)
 
 The obvious approach: borrow the foreground, `SendInput` the text as `KEYEVENTF_UNICODE` events, give the foreground back. On a slow app the tail of the text arrived in **my terminal** instead.
 
