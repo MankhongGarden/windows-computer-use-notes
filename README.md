@@ -8,10 +8,10 @@ I run several AI coding agents (Claude Code) on one Windows laptop, and they nee
 |---|---|---|
 | 1. Minimized target window | Refuses: `cannot capture minimized window` (`platform-windows/src/capture.rs`, `wgc.rs`) | Restores it with `SW_RESTORE` and switches to it (`desktop/service.py`) — the user's screen changes |
 | 2. Typing leaks | **Handled.** Foreground `type_text` waits for each character to be read: 211 characters into a window slowed to 40 ms per key all landed, none leaked | Not tested |
-| 3. Non-US keyboard layout | `press_key "3"` types `-` on a Thai-layout window, both background and foreground; `type_text` is correct ([trycua/cua#6181](https://github.com/trycua/cua/issues/6181)) | Not tested |
+| 3. Non-US keyboard layout | **Fixed after 0.38.0.** In 0.38.0, `press_key "3"` typed `-` on a Thai-layout window, both background and foreground ([trycua/cua#6181](https://github.com/trycua/cua/issues/6181)). Fixed in [trycua/cua#6201](https://github.com/trycua/cua/pull/6201): the nightly build of 2026-11-01 types `3`, `1` and `a` correctly in both modes. Not in a stable release yet | Not tested |
 | 4. Thai OCR | OCR extension is English-only ([trycua/cua#4332](https://github.com/trycua/cua/issues/4332)); not tested by me | Not tested |
 
-cua rows 1–3 were re-tested against cua-driver 0.38.0 on 2026-10-30 with throwaway WinForms windows; row 4 is from the linked issue. So section 2 is mainly a trap for hand-rolled `SendInput` code; cua already avoids it.
+cua rows 1–3 were re-tested against cua-driver 0.38.0 on 2026-10-30 with throwaway WinForms windows, and row 3 again against `0.38.1-nightly.20261101` on 2026-11-02; row 4 is from the linked issue. So sections 2 and 3 are mainly traps for hand-rolled `SendInput` code; cua avoids both once the fix ships.
 
 Both are good projects with far more scope than mine (Cua runs whole sandboxed VMs on three OSes). These notes are only about four details that matter when **an agent and a human share one desktop**. The code here is short illustrative `ctypes`; the tool itself stays private.
 
@@ -79,6 +79,8 @@ What fixed it:
 Often you don't need real keys at all: for a field that already has text, `ValuePattern.SetValue(old + new)` plus a readback appends in the background. Real keys are the fallback, not the default.
 
 ## 3. Non-Latin keyboard layouts turn digits into other characters
+
+(cua-driver 0.38.0 has this bug; [trycua/cua#6201](https://github.com/trycua/cua/pull/6201) fixes it with the approach below, and the 2026-11-01 nightly passed the same test. This section is for anyone writing their own.)
 
 With the Thai (Kedmanee) layout active, an agent pressing the key "3" typed "-" in the app. Virtual-key codes describe a physical key; what character it produces depends on the layout of the **target's thread**, and the user can switch layouts at any time.
 
