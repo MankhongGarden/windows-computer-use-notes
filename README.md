@@ -1,6 +1,6 @@
 # Windows computer-use for AI agents: four problems when an agent and a human share one desktop
 
-> **Field notes · partly day one.** Section 1 (minimized windows), 2 (typing leaks), 3 (keyboard layouts) and 4 (Thai OCR) were built and tested on **2026-10-30**. The rest of the tool has been in daily use since 2026-10-07. Tested on one machine: Windows 11 build 26300, Python 3 + `ctypes`, 125 % DPI, apps from classic Win32 to UWP and Chromium. Expect rough edges; this README will be updated after two more weeks of real use.
+> **Field notes · updated 2026-11-16 after two weeks of real use.** Sections 1–4 were built and tested on 2026-10-30; the rest of the tool has been in daily use since 2026-10-07. [Section 5](#5-two-weeks-of-real-use) has what changed since then: one leaked secret and slower OCR than the first benchmark. Tested on one machine: Windows 11 build 26300, Python 3 + `ctypes`, 125 % DPI, apps from classic Win32 to UWP and Chromium.
 
 I run several AI coding agents (Claude Code) on one Windows laptop, and they need to click and type in desktop apps **while I keep working on the same screen**. I built a small private MCP server for that. Before adding more to it I compared it with the two open-source tools most people use:
 
@@ -8,10 +8,10 @@ I run several AI coding agents (Claude Code) on one Windows laptop, and they nee
 |---|---|---|
 | 1. Minimized target window | Refuses: `cannot capture minimized window` (`platform-windows/src/capture.rs`, `wgc.rs`) | Restores it with `SW_RESTORE` and switches to it (`desktop/service.py`) — the user's screen changes |
 | 2. Typing leaks | **Handled.** Foreground `type_text` waits for each character to be read: 211 characters into a window slowed to 40 ms per key all landed, none leaked | Not tested |
-| 3. Non-US keyboard layout | **Fixed after 0.38.0.** In 0.38.0, `press_key "3"` typed `-` on a Thai-layout window, both background and foreground ([trycua/cua#6181](https://github.com/trycua/cua/issues/6181)). Fixed in [trycua/cua#6201](https://github.com/trycua/cua/pull/6201): the nightly build of 2026-11-01 types `3`, `1` and `a` correctly in both modes. Not in a stable release yet | Not tested |
+| 3. Non-US keyboard layout | **Fixed after 0.38.0.** In 0.38.0, `press_key "3"` typed `-` on a Thai-layout window, both background and foreground ([trycua/cua#6181](https://github.com/trycua/cua/issues/6181)). Fixed in [trycua/cua#6201](https://github.com/trycua/cua/pull/6201): the nightly build of 2026-11-01 types `3`, `1` and `a` correctly in both modes. First tagged release with the fix: `cua-driver-rs-v0.39.0` (2026-11-06) | Not tested |
 | 4. Thai OCR | OCR extension is English-only ([trycua/cua#4332](https://github.com/trycua/cua/issues/4332)); not tested by me | Not tested |
 
-cua rows 1–3 were re-tested against cua-driver 0.38.0 on 2026-10-30 with throwaway WinForms windows, and row 3 again against `0.38.1-nightly.20261101` on 2026-11-02; row 4 is from the linked issue. So sections 2 and 3 are mainly traps for hand-rolled `SendInput` code; cua avoids both once the fix ships.
+cua rows 1–3 were re-tested against cua-driver 0.38.0 on 2026-10-30 with throwaway WinForms windows, and row 3 again against `0.38.1-nightly.20261101` on 2026-11-02; row 4 is from the linked issue. So sections 2 and 3 are mainly traps for hand-rolled `SendInput` code; cua avoids both from `cua-driver-rs-v0.39.0` on (checked 2026-11-16 that the release tag contains the fix commit; I have not re-run the test on that build, and cua marks its driver releases as pre-release on GitHub).
 
 Both are good projects with far more scope than mine (Cua runs whole sandboxed VMs on three OSes). These notes are only about four details that matter when **an agent and a human share one desktop**. The code here is short illustrative `ctypes`; the tool itself stays private.
 
@@ -80,7 +80,7 @@ Often you don't need real keys at all: for a field that already has text, `Value
 
 ## 3. Non-Latin keyboard layouts turn digits into other characters
 
-(cua-driver 0.38.0 has this bug; [trycua/cua#6201](https://github.com/trycua/cua/pull/6201) fixes it with the approach below, and the 2026-11-01 nightly passed the same test. This section is for anyone writing their own.)
+(cua-driver 0.38.0 has this bug; [trycua/cua#6201](https://github.com/trycua/cua/pull/6201) fixes it with the approach below, the 2026-11-01 nightly passed the same test, and the fix is in `cua-driver-rs-v0.39.0` and later. This section is for anyone writing their own.)
 
 With the Thai (Kedmanee) layout active, an agent pressing the key "3" typed "-" in the app. Virtual-key codes describe a physical key; what character it produces depends on the layout of the **target's thread**, and the user can switch layouts at any time.
 
@@ -114,7 +114,7 @@ For custom-drawn apps with no useful UIA tree (a Qt chat app, canvas UIs), the f
 | tesseract.js 7.0.0, `tessdata_fast` tha+eng | 6 / 8 | 14 % | ~110 MB | 0.6 s |
 | RapidOCR, PP-OCRv5 Thai | 3 / 8 | 41 % | 266 MB | 0.75 s |
 
-Small sample, one machine; treat it as a hint, not a benchmark. I kept tesseract.js in a persistent Node worker (spawned once, exits after 10 min idle) and removed RapidOCR. `tessdata_best` does not load in tesseract.js (it needs the `DotProductSSE` path), so use `tessdata_fast` and pin its SHA-256.
+Small sample, one machine; treat it as a hint, not a benchmark. The times above did not hold up in daily use; see [section 5](#5-two-weeks-of-real-use). I kept tesseract.js in a persistent Node worker (spawned once, exits after 10 min idle) and removed RapidOCR. `tessdata_best` does not load in tesseract.js (it needs the `DotProductSSE` path), so use `tessdata_fast` and pin its SHA-256.
 
 Details that made matching reliable:
 
@@ -123,6 +123,20 @@ Details that made matching reliable:
 - **Fuzzy match, but keep every digit.** A similarity threshold (~0.85) absorbs vowel confusions such as บัญชิ for บัญชี, but on numbered lists it happily matched "20. …" for "27. …". Require all digits of the query to match exactly.
 - **Big captures: crop bands yourself.** For tall windows I split into up to 3 overlapping bands (48 px overlap) and OCR them in parallel. Passing `rectangle` to tesseract.js returned garbage for some bands; cropping the image first worked. Assign each line to the band whose non-overlapping core contains the line's centre, so cut lines are never duplicated or lost. A 28-line window went from 2.2 s to 1.0 s at the same accuracy.
 - **Grow workers on demand.** Starting with 3 workers cost ~185 MB; starting with 1 and adding workers only when bands queue keeps the idle cost near 100 MB.
+
+## 5. Two weeks of real use
+
+From 2026-10-30 to 2026-11-16 the agents made 153 calls to the tool. Most of them only read: 47 OCR reads of a window, 42 window lists, 26 window moves or minimizes, 18 screenshots. Only 8 typed text and 3 clicked. So the typing and layout fixes got light use. The log shows no leak warning and no wrong character in that time. The 3 failed calls were all "not found" (window closed, wrong element name, browser not running), not bugs. Two things did go wrong:
+
+**Reading the screen can leak a secret.** An agent ran a CLI login that prints a long-lived token, then OCR'd that terminal window to see whether the login had finished. The window was showing the token at that moment, so the token went into the agent's transcript and had to be revoked. Screenshot and OCR tools read whatever is on screen, the same as a browser snapshot of a page that shows an API key. What I do now:
+
+- Never screenshot or OCR a window that may be showing a secret, including terminals running login or `token create` commands.
+- Scripts that create a secret write a status file the agent can read instead: "done" plus the length, never the value.
+- If the agent has to look at the screen, it asks the human first whether a secret is visible.
+
+This is a rule the agents follow, not a block in the tool yet. A tool-side block would need a list of windows that may show secrets, and it would still miss some.
+
+**OCR was much slower than the first benchmark.** The 47 real OCR calls took 7.1 s at the median (1.5 s to 25.5 s), against 0.6–1.0 s in section 4. A re-test on 2026-11-16 with a 28-line Thai/English Notepad window (630 × 959 capture, 3 bands): 10–13 s per read, all 28 lines correct. With a warm worker, one 320 px band (about 10 lines) took 6–8 s. Taking the capture took 0.03 s, so the time is all in tesseract. During the re-test Windows reported the CPU at 47 % of base clock (about 1.5 GHz) under load, because of this laptop's power settings. I did not record the CPU state on 2026-10-30, so I can't say how much of the gap comes from the clock. So: the accuracy result stands, but plan for seconds per OCR read on a laptop that limits its CPU, not one second. Use UIA text whenever the app exposes it.
 
 ---
 
